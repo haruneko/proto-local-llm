@@ -1,6 +1,7 @@
 import { StateGraph, END } from "@langchain/langgraph";
 import { AgentState } from "../types/state.ts";
 import { Thought } from "../types/thought.ts";
+import { inferCategoryFromToolName } from '../types/toolMapping.ts';
 import { generateObject, generateText } from "ai";
 import { z } from "zod";
 
@@ -96,14 +97,48 @@ export class HalGraph {
 
   private async executeToolNode(state: AgentState): Promise<Partial<AgentState>> {
     console.log("--- NODE: execute_tool ---");
-    // ここで具体的なツール選択と実行を行う（二段階目の詳細実装は後ほど）
-    return {
-      thoughts: [{
-        timestamp: new Date().toISOString(),
-        phase: "execution",
-        thought: "ツールの実行を試みます（現在はスケルトン実装）。"
-      }]
-    };
+    const category = state.selectedCategory;
+    if (!category || category === "None") return {};
+
+    // カテゴリーに属するツールをフィルタリング
+    const allTools = this.mcpManager.getAllTools();
+    const filteredTools = allTools.filter((t: any) => {
+      return inferCategoryFromToolName(t.name) === category;
+    });
+
+    const selection = await this.toolSelector.selectToolAndArgs(state.userInput || "", category, filteredTools);
+
+    if (!selection) {
+      return {
+        thoughts: [{
+          timestamp: new Date().toISOString(),
+          phase: "execution",
+          thought: `カテゴリー「${category}」に適したツールが見つかりませんでした。`
+        }]
+      };
+    }
+
+    try {
+      const result = await this.mcpManager.callTool(selection.toolName, selection.args);
+      return {
+        thoughts: [{
+          timestamp: new Date().toISOString(),
+          phase: "execution",
+          thought: `ツール「${selection.toolName}」を実行しました。`,
+          action: selection.toolName,
+          observation: JSON.stringify(result)
+        }]
+      };
+    } catch (error: any) {
+      return {
+        thoughts: [{
+          timestamp: new Date().toISOString(),
+          phase: "execution",
+          thought: `ツール「${selection.toolName}」の実行に失敗しました。理由: ${error.message}`,
+          action: selection.toolName
+        }]
+      };
+    }
   }
 
   private async respondNode(state: AgentState): Promise<Partial<AgentState>> {

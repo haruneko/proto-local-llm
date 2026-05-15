@@ -9,5 +9,6 @@ describe('HierarchicalToolSelector', () => {
     const selector = new HierarchicalToolSelector(mockModel);
     // テストロジック
     expect(selector.selectCategory).toBeDefined();
+    expect(selector.selectToolAndArgs).toBeDefined();
   });
 });
